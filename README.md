@@ -12,6 +12,9 @@
 
 每个都是独立的，只部署你要用的那个就行。
 
+> 只部署主动消息（`amsg/`）的话，SullyOS 那边还有一份带截图的完整版：
+> [主动消息 2.0 · 从零开始的部署手册](https://github.com/qegj567-cloud/SullyOS/blob/master/docs/amsg2-setup-walkthrough.md)。
+
 ---
 
 ## 一次性准备
@@ -22,41 +25,53 @@
 
 ### 2. 建 D1 数据库（只有 `amsg/` 需要，其余跳过）
 
-Cloudflare 面板 → 左侧 **Storage & Databases** → **D1** → **Create database**，名字随便起（比如 `sullyos-amsg`）。
+Cloudflare 面板 → 左侧 **Storage & databases** → **D1 SQLite Database** → **Create Database**，名字随便起（比如 `sullyos-amsg`）。
 
-建好后进去，把 **Database ID** 复制下来（一串 uuid，长这样 `3f2b1c8a-9d4e-...`）。
+建好后会跳进这个库的 Overview 页，把 **Database ID** 复制下来（一串 uuid，长这样 `3f2b1c8a-9d4e-...`）。
 
 > 表结构不用管：SullyOS 里点「连接」时会自动建表。
 
 ### 3. 在 Cloudflare 连上仓库
 
-Cloudflare 面板 → **Workers & Pages** → **Create** → 选 **Import a repository**（连 GitHub 那个），授权后选中你 fork 的仓库。
+Cloudflare 面板 → **Compute** → **Workers & Pages** → 右上角 **Create application** → 选 **Continue with GitHub**（第一次会跳去 GitHub 授权），在仓库列表里选中你 fork 的仓库，点 **Next**。
 
-两项要填：
+往下滚到 **Set up your application**：
 
-- **Root directory**：你要部署的那个子目录，比如 `amsg`
-- **构建命令**：`sh ./deploy-prepare.sh`
+| 位置 | 填什么 |
+|------|--------|
+| Project name | 随便起，比如 `sullyos-amsg` |
+| Build command | `sh ./deploy-prepare.sh` |
+| Deploy command | 保持默认的 `npx wrangler deploy` |
 
-> 代码已经是打包好的，这条构建命令不编译任何东西——它只做一件事：把下一步那个
-> Database ID 填进配置文件。这样你就不用去 GitHub 上编辑代码了。
+再点 **Advanced settings** 展开：
 
-### 4. 设变量和密钥
+| 位置 | 填什么 |
+|------|--------|
+| Path | 你要部署的那个子目录：`/amsg`、`/instant-push` 或 `/mcp-proxy` |
+| API token | 下拉选 **Create new token**，名字随便起 |
+| Variable name / value | 只有 `amsg/` 需要：`D1_DATABASE_ID` = 上一步复制的 Database ID |
 
-部署设置里找到环境变量 / Secrets，按你部署的 Worker 加：
+> Variable value 旁边有个 **Encrypt**，**别点**——这个值要在构建阶段被读到，而且 Database ID 本身不是敏感信息。
+
+> 代码已经是打包好的，那条构建命令不编译任何东西——它只做一件事：把 Database ID 填进 `wrangler.toml`。这样你就不用去 GitHub 上编辑代码了。
+
+点右下角 **Deploy**。页面会跳到构建进度，**它不会自动刷新**，看起来一直卡在 Initializing 是正常的，手动刷新就能看到真实状态（顺利的话 30 秒左右完成）。
+
+### 4. 填密钥
+
+Secrets 要等**部署完**再填：Worker 页面 → **Settings** → 最上面的 **Variables and secrets** → **+ Add**，按你部署的 Worker 加。
 
 **`amsg/`**
 
-| 名字 | 哪来的 | 必填 | 类型 |
-|------|--------|------|------|
-| `D1_DATABASE_ID` | 上一步复制的 Database ID | 是 | 构建变量 |
-| `AMSG_MASTER_KEY` | SullyOS 设置 → 主动消息 2.0 里能一键生成 | 是 | Secret |
-| `VAPID_PUBLIC_KEY` | SullyOS 设置 →「推送凭据 (VAPID)」面板 | 是 | Secret |
-| `VAPID_PRIVATE_KEY` | 同上 | 是 | Secret |
-| `VAPID_EMAIL` | 随便一个 `mailto:你的邮箱` | 否 | Secret |
-| `AMSG_SERVER_TOKEN` | 自己起一个密码，填了就要求所有请求带上它 | 否 | Secret |
+| Type | 名字 | 哪来的 | 必填 |
+|------|------|--------|------|
+| Secret | `AMSG_MASTER_KEY` | SullyOS 设置 → 主动消息 2.0 里能一键生成 | 是 |
+| Secret | `VAPID_PUBLIC_KEY` | SullyOS 设置 →「推送凭据 (VAPID)」面板 | 是 |
+| Secret | `VAPID_PRIVATE_KEY` | 同上 | 是 |
+| Text | `VAPID_EMAIL` | 随便一个 `mailto:你的邮箱` | 否 |
+| Secret | `AMSG_SERVER_TOKEN` | 自己起一个密码，填了就要求所有请求带上它 | 否 |
 
-> `D1_DATABASE_ID` 放**构建变量**（Settings → Build → Variables），不是 Secret——
-> 它要在构建阶段被读到，而且 Database ID 本身不是敏感信息。其余几个放 Secret。
+填完点右下角 **Deploy**。
 
 > ⚠️ VAPID 那一对**必须和 SullyOS 面板里的是同一对**。整个站点共用一个浏览器推送订阅，Worker 用别的密钥对去签，推送会被浏览器拒掉（403），表现是「一切正常但就是收不到」。
 
@@ -64,9 +79,9 @@ Cloudflare 面板 → **Workers & Pages** → **Create** → 选 **Import a repo
 
 **`mcp-proxy/`** 不需要密钥。
 
-### 5. 部署，把地址填回 SullyOS
+### 5. 把地址填回 SullyOS
 
-部署完 Cloudflare 会给你一个 `https://xxx.workers.dev` 地址，复制它，填进 SullyOS 对应的设置项里，点「连接」。
+Worker 的 **Overview** 页，标题下面那个 `https://xxx.workers.dev` 就是地址，复制它，填进 SullyOS 对应的设置项里，点「连接」。
 
 ---
 
@@ -88,13 +103,18 @@ Cloudflare 面板 → **Workers & Pages** → **Create** → 选 **Import a repo
 正常情况不会——你的 Database ID 和密钥都存在 Cloudflare，不在仓库里，所以 fork 里没有你改过的文件。如果真冲突了（比如你手动编辑过），删掉 fork 重新 fork 一遍就行，Cloudflare 那边的连接、变量和密钥都不受影响。
 
 **构建失败，日志里说 `D1_DATABASE_ID 是空的`？**
-构建变量没设，或者设成 Secret 了。它必须放在 **Settings → Build → Variables**（构建阶段才读得到），不是运行时的 Secret。照日志里的四步做一遍即可。
+那个变量没设，或者设的时候点了 Encrypt。补的位置是 Worker → **Settings** → 往下找 **Build** → **Variables**（构建阶段才读得到），不是运行时的 Secret。加完重新部署一次。
 
 **部署成功了但 SullyOS 连不上？**
-先在浏览器直接打开 `https://你的地址/capabilities`。能返回一段 JSON 说明 Worker 活着，问题多半在地址填错或 `AMSG_SERVER_TOKEN` 不一致；打不开就去 Cloudflare 看部署日志。
+先在浏览器直接打开 `https://你的地址/capabilities`：
+
+- 返回一段 JSON → Worker 活着
+- 返回 `INVALID_CLIENT_TOKEN`（401）→ Worker 也活着，只是你配了 `AMSG_SERVER_TOKEN`，这个地址得带密钥才能访问
+
+这两种都正常，问题在地址填错或者 `AMSG_SERVER_TOKEN` 两边不一致。什么都打不开才是 Worker 没起来，去 Cloudflare 看部署日志。
 
 **主动消息到点了没反应？**
-`amsg/` 靠定时触发器每分钟检查一次，配置里已经写好了（`crons = ["* * * * *"]`）。去 Worker 的 **Settings → Trigger Events** 确认 Cron 那条在；不在的话通常是 Root directory 填错、部署的不是 `amsg` 目录。
+`amsg/` 靠定时触发器每分钟检查一次，配置里已经写好了（`crons = ["* * * * *"]`）。去 Worker 的 **Settings → Trigger events** 确认 Cron 那条在；不在的话通常是 Path 填错、部署的不是 `amsg` 目录。
 
 **想用 wrangler 命令行而不是网页？**
 
