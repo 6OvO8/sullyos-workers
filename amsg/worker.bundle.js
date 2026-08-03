@@ -7426,7 +7426,12 @@ var TOOL_LABELS = {
   // 后台到点时角色能给自己排下一条消息（worker 的 fire 循环里就这一个非数据工具）。
   // 漏在表外的话，回喂会拼出「你schedule_active_message，拿回了…」——内部工具名直接
   // 进了模型能看见的散文里。
-  schedule_active_message: "\u7ED9\u81EA\u5DF1\u6392\u4E0B\u4E00\u6761\u6D88\u606F"
+  schedule_active_message: "\u7ED9\u81EA\u5DF1\u6392\u4E0B\u4E00\u6761\u6D88\u606F",
+  // 前台聊天里角色还能取消 / 改期 / 查清单（见 utils/amsg2ToolBridge.ts）。同样是漏在
+  // 表外就会把内部工具名拼进散文，所以三个一起登记。
+  cancel_active_message: "\u53D6\u6D88\u4E00\u6761\u6392\u597D\u7684\u6D88\u606F",
+  renew_active_message: "\u628A\u6392\u597D\u7684\u6D88\u606F\u6539\u5230\u522B\u7684\u65F6\u95F4",
+  list_active_messages: "\u67E5\u81EA\u5DF1\u6392\u4E86\u54EA\u4E9B\u6D88\u606F"
 };
 var describeTool = (name) => {
   const label = TOOL_LABELS[name];
@@ -7486,7 +7491,9 @@ var buildToolResultMessage = (opts) => {
 };
 var buildDuplicateToolMessage = (name) => [
   `[\u7CFB\u7EDF: \u4F60\u521A\u521A\u5DF2\u7ECF${describeTool(name)}\u8FC7\u4E00\u6B21\u4E86\uFF0C\u53C2\u6570\u5B8C\u5168\u76F8\u540C\uFF0C\u7ED3\u679C\u5C31\u5728\u4E0A\u9762\u3002]`,
-  "[\u7CFB\u7EDF: \u8FD9\u4E00\u6B21\u6CA1\u6709\u518D\u53BB\u67E5\u3002\u522B\u518D\u91CD\u590D\u540C\u6837\u7684\u8C03\u7528\u4E86\u2014\u2014\u73B0\u5728\u628A\u8981\u53D1\u7684\u6D88\u606F\u5199\u51FA\u6765\uFF0C",
+  // 说「没有再执行」而不是「没有再去查」：这段话现在也管排程/取消/改期这类不是查询的
+  // 工具，说成「查」的话，角色收到的交代跟它刚做的事对不上。
+  "[\u7CFB\u7EDF: \u8FD9\u4E00\u6B21\u6CA1\u6709\u518D\u6267\u884C\u3002\u522B\u518D\u91CD\u590D\u540C\u6837\u7684\u8C03\u7528\u4E86\u2014\u2014\u73B0\u5728\u628A\u8981\u53D1\u7684\u6D88\u606F\u5199\u51FA\u6765\uFF0C",
   "\u6216\u8005\u6362\u4E00\u4E2A\u8FD8\u6CA1\u7528\u8FC7\u7684\u5DE5\u5177\u3002\u524D\u9762\u5DF2\u7ECF\u8BF4\u51FA\u53BB\u7684\u5185\u5BB9\u548C\u6807\u7B7E\u4E0D\u8981\u91CD\u5199\uFF0C\u63A5\u7740\u5F80\u4E0B\u5199\u5C31\u884C\u3002]"
 ].join("\n");
 
