@@ -7512,6 +7512,7 @@ var detectMode = (serverUrl) => {
   return "mcp";
 };
 var liteCookie = "";
+var litePlatform = "auto";
 var resolveLiteCookie = () => {
   if (liteCookie) return liteCookie;
   try {
@@ -7520,6 +7521,15 @@ var resolveLiteCookie = () => {
   } catch {
   }
   return "";
+};
+var resolvePersistedLitePlatform = () => {
+  try {
+    const raw = localStorage.getItem("os_realtime_config");
+    const platform = raw ? JSON.parse(raw)?.xhsMcpConfig?.platform : void 0;
+    return platform === "xhs" || platform === "rednote" ? platform : "auto";
+  } catch {
+    return "auto";
+  }
 };
 var spiderStorage = () => {
   try {
@@ -7567,7 +7577,7 @@ var withSpiderCircuitError = (detail, message) => ({
 });
 var trySpiderV3CommentPatch = async (baseUrl, requestBody, cookie, detail) => {
   const storage = spiderStorage();
-  if (!storage || detail?.data?.comments_status === "loaded") {
+  if (!storage || detail?.data?.comments_status === "loaded" || detail?.platform === "rednote" || detail?.data?.platform === "rednote") {
     return detail;
   }
   const a1Tag = await spiderCookieTag(cookie);
@@ -7590,6 +7600,7 @@ var trySpiderV3CommentPatch = async (baseUrl, requestBody, cookie, detail) => {
       headers: {
         "Content-Type": "application/json",
         "x-xhs-cookie": cookie,
+        ...litePlatform !== "auto" ? { "x-xhs-platform": litePlatform } : {},
         "x-xhs-experiment-ack": XHS_SPIDER_V3_EXPERIMENT.optInValue
       },
       body: JSON.stringify({
@@ -7632,6 +7643,8 @@ var bridgePost = async (serverUrl, endpoint, body = {}) => {
   const headers = { "Content-Type": "application/json" };
   const ck = resolveLiteCookie();
   if (ck) headers["x-xhs-cookie"] = ck;
+  const requestPlatform = endpoint === "check-login" ? litePlatform : litePlatform === "auto" ? resolvePersistedLitePlatform() : litePlatform;
+  if (requestPlatform !== "auto") headers["x-xhs-platform"] = requestPlatform;
   try {
     const resp = await fetch(url, {
       method: "POST",
@@ -7648,6 +7661,10 @@ var bridgePost = async (serverUrl, endpoint, body = {}) => {
     let data = await resp.json();
     if (data.error) {
       return { success: false, error: data.error };
+    }
+    const detectedPlatform = data?.platform || data?.data?.platform;
+    if (detectedPlatform === "xhs" || detectedPlatform === "rednote") {
+      litePlatform = detectedPlatform;
     }
     if (endpoint === "get-feed-detail" && ck) {
       data = await trySpiderV3CommentPatch(baseUrl, body, ck, data);
@@ -7917,10 +7934,12 @@ var XhsMcpClient = {
   },
   // Lite Worker auth: register the XHS cookie used for x-xhs-cookie header.
   setCookie: (cookie) => {
-    liteCookie = cookie || "";
+    const nextCookie = cookie || "";
+    if (nextCookie !== liteCookie) litePlatform = "auto";
+    liteCookie = nextCookie;
   },
   testConnection: async (serverUrl, cookie) => {
-    if (cookie !== void 0) liteCookie = cookie;
+    if (cookie !== void 0) XhsMcpClient.setCookie(cookie);
     const mode = detectMode(serverUrl);
     if (mode === "bridge") {
       try {
@@ -7931,7 +7950,7 @@ var XhsMcpClient = {
         if (!healthResp.ok) return { connected: false, error: `Bridge \u670D\u52A1\u672A\u54CD\u5E94 (HTTP ${healthResp.status})` };
         const loginResult = await bridgePost(serverUrl, "check-login");
         const tools = ["check-login", "search", "list-feeds", "get-feed-detail", "publish", "publish-video", "long-article", "post-comment", "reply-comment", "like-feed", "favorite-feed", "user-profile", "login", "get-qrcode"];
-        let loggedIn = false, nickname, userId;
+        let loggedIn = false, nickname, userId, platform;
         if (loginResult.success && loginResult.data) {
           const d = loginResult.data;
           if (typeof d === "string") {
@@ -7944,6 +7963,7 @@ var XhsMcpClient = {
             loggedIn = !!(d.logged_in || d.loggedIn || d.is_logged_in || d.isLoggedIn || d.logged);
             nickname = d.nickname || d.name || d.username || d.user_name || void 0;
             userId = d.user_id || d.userId || d.id || d.red_id || void 0;
+            platform = d.platform === "xhs" || d.platform === "rednote" ? d.platform : void 0;
           }
         }
         let xsecToken;
@@ -7954,7 +7974,7 @@ var XhsMcpClient = {
           } catch {
           }
         }
-        return { connected: true, tools, nickname, userId, loggedIn, xsecToken };
+        return { connected: true, tools, nickname, userId, loggedIn, xsecToken, platform };
       } catch (e) {
         return { connected: false, error: describeXhsConnectFailure(e, serverUrl) };
       }
