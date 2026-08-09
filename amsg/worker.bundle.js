@@ -7464,6 +7464,41 @@ var feishuGetDiaryByDate = async (appId, appSecret, baseId, tableId, characterNa
   }
 };
 
+// utils/networkFailureDiagnosis.ts
+var readError = (error) => {
+  if (error instanceof Error) return { name: error.name || "Error", message: error.message || String(error) };
+  if (error && typeof error === "object") {
+    const anyErr = error;
+    return {
+      name: typeof anyErr.name === "string" ? anyErr.name : "Error",
+      message: typeof anyErr.message === "string" ? anyErr.message : String(error)
+    };
+  }
+  return { name: "Error", message: String(error ?? "") };
+};
+var looksLikeNetworkError = (message) => /failed to fetch/i.test(message) || /load failed/i.test(message) || /networkerror/i.test(message) || /network request failed/i.test(message);
+var parseTargetUrl = (url, base) => {
+  try {
+    const parsed = new URL(url, base || (typeof location !== "undefined" ? location.href : void 0));
+    return { ok: true, origin: parsed.origin, host: parsed.host, protocol: parsed.protocol, href: parsed.href };
+  } catch {
+    return { ok: false, origin: "", host: "", protocol: "", href: url };
+  }
+};
+var isLoopbackHost = (host) => /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host);
+var classifyFetchFailure = (ctx) => {
+  const { name, message } = readError(ctx.error);
+  if (name === "AbortError" || /aborted|abort/i.test(message)) return "aborted";
+  const target = parseTargetUrl(ctx.url);
+  if (!target.ok) return "bad-url";
+  const pageProtocol = ctx.pageProtocol ?? (typeof location !== "undefined" ? location.protocol : "");
+  if (pageProtocol === "https:" && target.protocol === "http:" && !isLoopbackHost(target.host)) return "mixed-content";
+  const online = ctx.online ?? (typeof navigator !== "undefined" ? navigator.onLine : true);
+  if (online === false) return "offline";
+  if (looksLikeNetworkError(message) || name === "TypeError") return "blocked";
+  return "unknown";
+};
+
 // utils/xhsMcpClient.ts
 var XHS_SPIDER_V3_EXPERIMENT = Object.freeze({
   optInValue: "spider-v3-isolated-cookie",
@@ -7852,6 +7887,24 @@ var extractFirstXsecToken = (data) => {
   }
   return void 0;
 };
+var describeXhsConnectFailure = (e, serverUrl) => {
+  const host = parseTargetUrl(serverUrl).host || serverUrl;
+  const kind = classifyFetchFailure({ url: serverUrl, error: e });
+  switch (kind) {
+    case "aborted":
+      return `\u8FDE\u63A5 ${host} \u8D85\u65F6\uFF0810 \u79D2\u6CA1\u6709\u54CD\u5E94\uFF09\u3002\u591A\u534A\u662F\u4EE3\u7406/\u7F51\u5173\u628A\u8FDE\u63A5\u541E\u4E86\uFF0C\u6362\u4E2A\u68AF\u5B50\u8282\u70B9\u518D\u8BD5\u3002`;
+    case "offline":
+      return "\u5F53\u524D\u5904\u4E8E\u79BB\u7EBF\u72B6\u6001\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u6216\u68AF\u5B50\u662F\u5426\u6389\u7EBF\u3002";
+    case "mixed-content":
+      return `SullyOS \u8DD1\u5728 https \u4E0A\uFF0C\u4E0D\u80FD\u8FDE http \u5730\u5740\uFF08${host}\uFF09\u3002\u8BF7\u628A\u670D\u52A1\u5730\u5740\u6539\u6210 https://\uFF0C\u6216\u7528\u672C\u5730 http \u6253\u5F00 SullyOS\u3002`;
+    case "bad-url":
+      return `\u670D\u52A1\u5668\u5730\u5740\u4E0D\u662F\u5408\u6CD5 URL\uFF1A${serverUrl}\u3002\u68C0\u67E5\u6709\u6CA1\u6709\u6F0F\u6389 https://\u3001\u591A\u4E86\u7A7A\u683C\u6216\u7528\u4E86\u4E2D\u6587\u6807\u70B9\u3002`;
+    case "blocked":
+      return `\u8FDE\u4E0D\u4E0A ${host}\uFF1A\u6D4F\u89C8\u5668\u5728\u62FF\u5230\u54CD\u5E94\u524D\u5C31\u5931\u8D25\u4E86\u3002\u5E38\u89C1\u539F\u56E0\u2014\u2014\u68AF\u5B50/\u4EE3\u7406\u62E6\u4E86\u8FD9\u4E2A\u57DF\u540D\u3001DNS \u89E3\u6790\u4E0D\u5230\u3001\u6D4F\u89C8\u5668\u6269\u5C55\uFF08\u5E7F\u544A\u62E6\u622A/\u9690\u79C1\u76FE\uFF09\u5C4F\u853D\u4E86\uFF0C\u6216\u5BF9\u65B9\u6B63\u8FD4\u56DE\u9650\u6D41/\u4EBA\u673A\u9A8C\u8BC1\u9875\u3002\u53EF\u5728\u65B0\u6807\u7B7E\u9875\u76F4\u63A5\u6253\u5F00 ${serverUrl.replace(/\/+$/, "")}/health \u9A8C\u8BC1\uFF1B\u8BE6\u7EC6\u65C1\u8BC1\u89C1\u300C\u7CFB\u7EDF\u8C03\u8BD5\u7EC8\u7AEF\u300D\u3002`;
+    default:
+      return e?.message || "\u8FDE\u63A5\u5931\u8D25";
+  }
+};
 var XhsMcpClient = {
   resetSession: () => {
     mcpSessionId = null;
@@ -7869,7 +7922,9 @@ var XhsMcpClient = {
     if (mode === "bridge") {
       try {
         const baseUrl = serverUrl.replace(/\/+$/, "").replace(/\/api$/, "");
-        const healthResp = await fetch(`${baseUrl}/api/health`);
+        const healthResp = await fetch(`${baseUrl}/api/health`, {
+          signal: typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(1e4) : void 0
+        });
         if (!healthResp.ok) return { connected: false, error: `Bridge \u670D\u52A1\u672A\u54CD\u5E94 (HTTP ${healthResp.status})` };
         const loginResult = await bridgePost(serverUrl, "check-login");
         const tools = ["check-login", "search", "list-feeds", "get-feed-detail", "publish", "publish-video", "long-article", "post-comment", "reply-comment", "like-feed", "favorite-feed", "user-profile", "login", "get-qrcode"];
@@ -7898,7 +7953,7 @@ var XhsMcpClient = {
         }
         return { connected: true, tools, nickname, userId, loggedIn, xsecToken };
       } catch (e) {
-        return { connected: false, error: e.message };
+        return { connected: false, error: describeXhsConnectFailure(e, serverUrl) };
       }
     }
     try {
