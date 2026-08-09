@@ -7488,6 +7488,7 @@ var parseTargetUrl = (url, base) => {
 var isLoopbackHost = (host) => /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host);
 var classifyFetchFailure = (ctx) => {
   const { name, message } = readError(ctx.error);
+  if (name === "TimeoutError" || /timed?\s?out|timeout/i.test(message)) return "timeout";
   if (name === "AbortError" || /aborted|abort/i.test(message)) return "aborted";
   const target = parseTargetUrl(ctx.url);
   if (!target.ok) return "bad-url";
@@ -7891,8 +7892,10 @@ var describeXhsConnectFailure = (e, serverUrl) => {
   const host = parseTargetUrl(serverUrl).host || serverUrl;
   const kind = classifyFetchFailure({ url: serverUrl, error: e });
   switch (kind) {
+    case "timeout":
+      return `\u8FDE\u63A5 ${host} \u8D85\u65F6\uFF0810 \u79D2\u4E00\u4E2A\u5B57\u8282\u90FD\u6CA1\u56DE\uFF09\u3002\u8FDE\u63A5\u662F\u6302\u4F4F\u4E0D\u8FD4\u56DE\u3001\u4E0D\u662F\u88AB\u62D2\u2014\u2014\u591A\u534A\u662F\u8BE5\u57DF\u540D\u6CA1\u8D70\u4EE3\u7406\u8D70\u4E86\u76F4\u8FDE\uFF0C\u6216\u4EE3\u7406\u8282\u70B9\u5230\u4E0A\u6E38\u662F\u9ED1\u6D1E\u3002\u4F18\u5148\u6362\u4E2A\u68AF\u5B50\u8282\u70B9\u3001\u6216\u628A\u8FD9\u4E2A\u57DF\u540D\u663E\u5F0F\u52A0\u8FDB\u4EE3\u7406\u89C4\u5219\u3002`;
     case "aborted":
-      return `\u8FDE\u63A5 ${host} \u8D85\u65F6\uFF0810 \u79D2\u6CA1\u6709\u54CD\u5E94\uFF09\u3002\u591A\u534A\u662F\u4EE3\u7406/\u7F51\u5173\u628A\u8FDE\u63A5\u541E\u4E86\uFF0C\u6362\u4E2A\u68AF\u5B50\u8282\u70B9\u518D\u8BD5\u3002`;
+      return "\u8FDE\u63A5\u88AB\u53D6\u6D88\uFF08\u9875\u9762\u5207\u8D70\u4E86\u6216\u624B\u52A8\u505C\u6B62\uFF09\u3002";
     case "offline":
       return "\u5F53\u524D\u5904\u4E8E\u79BB\u7EBF\u72B6\u6001\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u6216\u68AF\u5B50\u662F\u5426\u6389\u7EBF\u3002";
     case "mixed-content":
